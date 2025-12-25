@@ -41,7 +41,6 @@ model = AutoModelForCausalLM.from_pretrained(
 # LoRA
 if args.use_lora:
     model = PeftModel.from_pretrained(model, args.lora_path)
-    print("Используется LoRA")
 
 # Токенизатор
 tokenizer = AutoTokenizer.from_pretrained(args.model_name)
