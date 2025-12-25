@@ -7,36 +7,33 @@ from transformers import (
     DataCollatorForLanguageModeling,
     TrainingArguments,
     Trainer,
+    TrainerCallback,
 )
 from peft import LoraConfig, get_peft_model
 import argparse
+import os
 
-# Парсер аргументов
 parser = argparse.ArgumentParser(description="Обучение TinyLlama")
 parser.add_argument("--csv_file", type=str, required=True, help="Путь к CSV файлу")
 parser.add_argument("--num_rows", type=int, default=None, help="Количество строк")
 parser.add_argument("--output_dir", type=str, default="./tinllama-lora-electronics", help="Директория для сохранения")
 args = parser.parse_args()
 
-# Загрузка датасета
 df = pd.read_csv(args.csv_file, encoding='utf-8')
 
 if args.num_rows is not None:
     df = df.head(min(args.num_rows, len(df)))
 
-# Создание промптов
 prompts = []
 for _, row in df.iterrows():
     prompt = f"<|user|>\n{row['question']}</s>\n<|assistant|>\n{row['answer']}</s>\n"
     prompts.append(prompt)
 
-# Создание датасета
 dataset = Dataset.from_dict({"text": prompts})
 split_dataset = dataset.train_test_split(test_size=0.2, seed=42)
 train_dataset = split_dataset["train"]
 eval_dataset = split_dataset["test"]
 
-# Загрузка модели и токенизатора
 model_name = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 tokenizer.pad_token = tokenizer.eos_token
@@ -45,10 +42,9 @@ model = AutoModelForCausalLM.from_pretrained(
     model_name,
     load_in_4bit=True,
     device_map="auto",
-    torch_dtype=torch.float16,
+    dtype=torch.float16,
 )
 
-# Настройка LoRA
 lora_config = LoraConfig(
     r=16,
     lora_alpha=32,
@@ -60,7 +56,6 @@ lora_config = LoraConfig(
 
 model = get_peft_model(model, lora_config)
 
-# Токенизация
 def tokenize_function(examples):
     return tokenizer(
         examples["text"],
@@ -72,19 +67,18 @@ def tokenize_function(examples):
 tokenized_train = train_dataset.map(tokenize_function, batched=True)
 tokenized_eval = eval_dataset.map(tokenize_function, batched=True)
 
-# Data collator
 collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
-# Параметры обучения
 training_args = TrainingArguments(
     output_dir=args.output_dir,
     per_device_train_batch_size=2,
     per_device_eval_batch_size=2,
     gradient_accumulation_steps=4,
-    num_train_epochs=3,
+    num_train_epochs=5,
     learning_rate=2e-4,
     fp16=True,
-    logging_steps=20,
+    logging_steps=2,
+    logging_first_step=True,
     save_steps=200,
     eval_strategy="steps",
     eval_steps=100,
@@ -94,7 +88,6 @@ training_args = TrainingArguments(
     optim="paged_adamw_8bit",
 )
 
-# Trainer
 trainer = Trainer(
     model=model,
     args=training_args,
@@ -103,11 +96,35 @@ trainer = Trainer(
     data_collator=collator,
 )
 
-# Обучение
 trainer.train()
 
-# Сохранение
 trainer.save_model(args.output_dir)
 tokenizer.save_pretrained(args.output_dir)
+
+import matplotlib.pyplot as plt
+
+log_history = trainer.state.log_history
+train_steps = []
+train_losses = []
+eval_steps = []
+eval_losses = []
+
+for log in log_history:
+    if "loss" in log and "eval_loss" not in log:
+        train_steps.append(log.get("step"))
+        train_losses.append(log.get("loss"))
+    if "eval_loss" in log:
+        eval_steps.append(log.get("step"))
+        eval_losses.append(log.get("eval_loss"))
+
+plt.figure(figsize=(8, 5))
+plt.plot(train_steps, train_losses, label="Train loss")
+plt.plot(eval_steps, eval_losses, label="Eval loss")
+plt.xlabel("Step")
+plt.ylabel("Loss")
+plt.title("График обучения TinyLlama (LoRA)")
+plt.legend()
+plt.grid(True)
+plt.show()
 
 print("Обучение завершено!")
