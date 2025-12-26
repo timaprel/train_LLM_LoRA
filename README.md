@@ -37,7 +37,7 @@ python .\chat.py --use_lora
 ---
 
 ## 2. Параметры обучения
-Из файла `train_model.py`
+Из файла `train.py`
 ### Конфигурация LoRA
 ```python
 lora_config = LoraConfig(
