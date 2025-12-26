@@ -9,7 +9,7 @@
 
 ### Запуск обучения
 ``` python
-python .\train_model.py --csv_file .\dataset.csv 
+python .\train.py --csv_file .\dataset.csv 
 ```
 ### Запуск диалога до обучения
 ```python
